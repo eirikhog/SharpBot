@@ -18,6 +18,11 @@ type EventListener = {
     handler : EventHandler
 }
 
+type User = {
+    nick : string
+    address : string
+}
+
 let GetEventType(command: string) =
     let cmdMap = [("PING", EventType.PING); ("PRIVMSG", EventType.PRIVMSG)] |> Map.ofList
     match cmdMap.TryFind(command) with
@@ -35,6 +40,7 @@ type Connection(address: string, port: int) =
 
 type IrcNetwork(connection: Connection) =
     let eventListeners = new Collection<EventListener>()
+    let users = new Collection<User>()
     member x.AddListener(listener: EventListener) = eventListeners.Add(listener)
     member x.RemoveListener(listener: EventListener) = eventListeners.Remove(listener)
 
@@ -50,7 +56,7 @@ type IrcNetwork(connection: Connection) =
         let sanitized = input.Replace("\r", "").Replace("\n", "")
         let bytes = ASCIIEncoding.ASCII.GetBytes(sanitized + "\r\n")
         connection.Send(bytes)
-        printfn "S: %s" input
+        printf "S: %s" input
 
     member x.ListenerThread() =
         for incoming in Seq.initInfinite (fun _ -> x.Recv()) do
@@ -93,10 +99,30 @@ type IrcNetwork(connection: Connection) =
             event = EventType.PRIVMSG
             handler = new EventHandler(fun _ data -> x.Send(System.String.Format("PRIVMSG #test {0}", getText(data))))
         }
+            
+
+        let PrettyPrint (str: string) =
+            let elements = str.Split(' ')
+            let userAndAddress = elements |> Seq.head
+            let nick = (userAndAddress.Split('!') |> Seq.head).Substring(1)
+
+            // TODO: Make use of the rest of the data here.
+            let firstSpace = str.IndexOf(' ')
+            let secondSpace = str.IndexOf(' ', firstSpace + 1)
+            let thirdSpace = str.IndexOf(' ', secondSpace + 1)
+            let channel = str.Substring(secondSpace + 1, thirdSpace - secondSpace - 1)
+            let msg = str.Substring(thirdSpace + 2)
+            System.Console.Write(sprintf "[%s] %s: %s" channel nick msg)
+
+        let chatHandler = {
+            event = EventType.PRIVMSG
+            handler = new EventHandler(fun _ data -> PrettyPrint(data))
+        }
 
         x.AddListener(pingHandler)
         x.AddListener(firstPingHandler)
         x.AddListener(echoHandler)
+        x.AddListener(chatHandler)
 
         let listener = new Thread(x.ListenerThread)
         listener.Start()
